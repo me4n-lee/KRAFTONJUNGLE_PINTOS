@@ -2,6 +2,7 @@
 #define VM_VM_H
 #include <stdbool.h>
 #include "threads/palloc.h"
+#include "lib/kernel/hash.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -36,19 +37,20 @@ struct thread;
 
 #define VM_TYPE(type) ((type) & 7)
 
-/* The representation of "page".
- * This is kind of "parent class", which has four "child class"es, which are
- * uninit_page, file_page, anon_page, and page cache (project4).
- * DO NOT REMOVE/MODIFY PREDEFINED MEMBER OF THIS STRUCTURE. */
+/* "페이지"의 표현입니다.
+이것은 네 가지 "자식 클래스", 즉
+uninit_page, file_page, anon_page, 그리고 page cache (project4)를 가진 "부모 클래스"의 종류입니다.
+이 구조체의 사전 정의된 멤버를 제거/수정하지 마십시오. */
 struct page {
 	const struct page_operations *operations;
-	void *va;              /* Address in terms of user space */
-	struct frame *frame;   /* Back reference for frame */
+	void *va;              /* 사용자 공간 측면의 주소 */
+	struct frame *frame;   /* 프레임에 대한 역참조 */
 
 	/* Your implementation */
+	struct hash_elem h_elem;
 
-	/* Per-type data are binded into the union.
-	 * Each function automatically detects the current union */
+	/* 타입별 데이터는 union으로 묶입니다.
+	각 함수는 자동으로 현재 union을 감지합니다. */
 	union {
 		struct uninit_page uninit;
 		struct anon_page anon;
@@ -81,10 +83,14 @@ struct page_operations {
 #define destroy(page) \
 	if ((page)->operations->destroy) (page)->operations->destroy (page)
 
-/* Representation of current process's memory space.
- * We don't want to force you to obey any specific design for this struct.
- * All designs up to you for this. */
+/* 현재 프로세스의 메모리 공간 표현입니다.
+이 구조체에 대해 어떠한 특정 디자인도 강제하고 싶지 않습니다.
+이것에 대한 모든 디자인은 여러분에게 달려 있습니다. */
 struct supplemental_page_table {
+
+	// 보조 테이블에 있는 각 페이지 정보를 저장하고 관리하는 포인터
+	struct hash *page_info;
+	
 };
 
 #include "threads/thread.h"
@@ -108,5 +114,8 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
+
+unsigned page_hash (const struct hash_elem *p_, void *aux);
+bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux);
 
 #endif  /* VM_VM_H */

@@ -283,8 +283,8 @@ find_bucket (struct hash *h, struct hash_elem *e) {
 	return &h->buckets[bucket_idx];
 }
 
-/* Searches BUCKET in H for a hash element equal to E.  Returns
-   it if found or a null pointer otherwise. */
+/* H의 BUCKET에서 E와 동일한 해시 요소를 검색합니다. 찾으면
+그것을 반환하거나, 그렇지 않으면 null 포인터를 반환합니다. */
 static struct hash_elem *
 find_elem (struct hash *h, struct list *bucket, struct hash_elem *e) {
 	struct list_elem *i;
@@ -391,4 +391,3 @@ remove_elem (struct hash *h, struct hash_elem *e) {
 	h->elem_cnt--;
 	list_remove (&e->list_elem);
 }
-
