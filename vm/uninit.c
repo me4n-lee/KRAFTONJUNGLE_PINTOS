@@ -42,12 +42,12 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 	};
 }
 
-/* Initalize the page on first fault */
+/* 첫 번째 page fault 발생 시 페이지를 초기화합니다. */
 static bool
 uninit_initialize (struct page *page, void *kva) {
 	struct uninit_page *uninit = &page->uninit;
 
-	/* Fetch first, page_initialize may overwrite the values */
+	/* 먼저 가져오고, page_initialize는 이 값을 덮어쓸 수 있습니다. */
 	vm_initializer *init = uninit->init;
 	void *aux = uninit->aux;
 

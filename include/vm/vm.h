@@ -49,6 +49,10 @@ struct page {
 	/* Your implementation */
 	struct hash_elem h_elem;
 
+	// 읽기, 쓰기 권한
+	bool writable;
+
+
 	/* 타입별 데이터는 union으로 묶입니다.
 	각 함수는 자동으로 현재 union을 감지합니다. */
 	union {
