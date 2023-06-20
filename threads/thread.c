@@ -15,6 +15,7 @@
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
+#include "filesys/file.h"
 #include "devices/timer.h"
 
 /* 스레드 구조체의 'magic' 멤버에 대한 임의의 값.

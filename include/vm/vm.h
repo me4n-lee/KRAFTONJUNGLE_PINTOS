@@ -2,7 +2,8 @@
 #define VM_VM_H
 #include <stdbool.h>
 #include "threads/palloc.h"
-#include "lib/kernel/hash.h"
+#include "threads/synch.h"
+#include "hash.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -69,6 +70,9 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct list_elem f_elem;
+	struct thread *th;
+	
 };
 
 /* The function table for page operations.
@@ -93,11 +97,12 @@ struct page_operations {
 struct supplemental_page_table {
 
 	// 보조 테이블에 있는 각 페이지 정보를 저장하고 관리하는 포인터
-	struct hash *page_info;
+	struct hash page_info;
 	
 };
 
 #include "threads/thread.h"
+
 void supplemental_page_table_init (struct supplemental_page_table *spt);
 bool supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src);
@@ -121,5 +126,9 @@ enum vm_type page_get_type (struct page *page);
 
 unsigned page_hash (const struct hash_elem *p_, void *aux);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux);
+
+struct lock lru_lock;
+
+struct list frame_table;
 
 #endif  /* VM_VM_H */

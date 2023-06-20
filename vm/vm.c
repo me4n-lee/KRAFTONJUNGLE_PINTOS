@@ -4,7 +4,10 @@
 #include "threads/mmu.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "userprog/process.h"
 // #include "lib/kernel/hash.h"
+
+#define USER_STACK_LIMIT (1 << 20)
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -50,8 +53,8 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
 	/*------------- project 3 -------------*/
-
-	struct page *page;
+	
+	struct page *p;
 
 	/*  upage가 이미 사용 중인지 아닌지 확인합니다.  */
 	if (spt_find_page (spt, upage) == NULL) {
@@ -62,10 +65,10 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 		/* TODO: 페이지를 spt에 삽입합니다. */
 
-		page = (struct page*) malloc(sizeof(struct page));
+		p = (struct page*) malloc(sizeof(struct page));
 
-		if (page == NULL){
-
+		if (p == NULL){
+			// printf("p is null\n");
 			goto err;
 
 		}
@@ -83,23 +86,24 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 		}
 
-		uninit_new(page, upage, init, type, aux, page_initializer);
+		uninit_new(p, upage, init, type, aux, page_initializer);
 
-		page->writable = writable;
+		p->writable = writable;
 
-		if (!spt_insert_page(spt, page)){
-
-			goto err;
-
+		if (spt_insert_page(spt, p)){
+			// printf("insert success\n");
+  			return true;
+		} 
+		else {
+			// printf("insert fail\n");
+  			goto err;
 		}
-
 	}
 	else{
 
 		goto err;
 
 	}
-
 	/*------------- project 3 -------------*/
 
 err:
@@ -196,23 +200,25 @@ vm_evict_frame (void) {
 이 함수는 항상 유효한 주소를 반환합니다. 즉, 사용자 풀 메모리가 가득 찬 경우, 
 이 함수는 프레임을 추방하여 사용 가능한 메모리 공간을 얻습니다. */
 static struct frame * vm_get_frame (void) {
+	
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 
 	/*------------- project 3 -------------*/
 
 	/* palloc_get_page를 호출하여 사용자 풀로부터 새로운 물리 페이지를 가져옵니다. */
-	void *page = palloc_get_page(PAL_USER);
+	void *kva = palloc_get_page(PAL_USER);
 
-	if(!page){
+	if(!kva){
 
 		PANIC("todo");		
 
 	}
 
-	frame = malloc(sizeof(struct frame));
+	frame = (struct frame *)malloc(sizeof(struct frame));
 
-	frame->page = page;
+	frame->kva = kva;
+	frame->page = NULL;
 
 	/*------------- project 3 -------------*/
 
@@ -225,6 +231,10 @@ static struct frame * vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
+
+	void *va = pg_round_down(addr);
+	vm_alloc_page(VM_ANON | VM_MARKER_0,va,true);
+
 }
 
 /* Handle the fault on write_protected page */
@@ -233,15 +243,35 @@ vm_handle_wp (struct page *page UNUSED) {
 }
 
 /* Return true on success */
-bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+bool vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
+	struct supplemental_page_table *spt UNUSED = &thread_current()->spt;
 	struct page *page = NULL;
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
+	if (addr == NULL)
+		return false;
 
-	return vm_do_claim_page (page);
+	if (is_kernel_vaddr(addr))
+		return false;
+
+	if (not_present) // 접근한 메모리의 physical page가 존재하지 않은 경우
+	{
+		/* TODO: Validate the fault */
+		// todo: 페이지 폴트가 스택 확장에 대한 유효한 경우인지를 확인해야 합니다.
+		void *rsp = f->rsp; // user access인 경우 rsp는 유저 stack을 가리킨다.
+		if (!user)			// kernel access인 경우 thread에서 rsp를 가져와야 한다.
+			rsp = thread_current()->rsp;
+
+		// 스택 확장으로 처리할 수 있는 폴트인 경우, vm_stack_growth를 호출
+		if ((USER_STACK - (1 << 20) <= rsp - 8 && rsp - 8 == addr && addr <= USER_STACK) || (USER_STACK - (1 << 20) <= rsp && rsp <= addr && addr <= USER_STACK))
+			vm_stack_growth(addr);
+
+		page = spt_find_page(spt, pg_round_down(addr));
+		if (page == NULL)
+			return false;
+		if (write == 1 && page->writable == 0) // write 불가능한 페이지에 write 요청한 경우
+			return false;
+		return vm_do_claim_page(page);
+	}
+	return false;
 }
 
 /* Free the page.
@@ -261,7 +291,7 @@ vm_claim_page (void *va UNUSED) {
 	/* TODO: Fill this function */
 	// va를 할당하기 위해 페이지를 주장합니다. 
 	// 먼저 페이지를 가져온 다음 페이지를 가지고 vm_do_claim_page를 호출해야 합니다.
-
+	// printf("load\n");
 	struct supplemental_page_table *spt = &thread_current()->spt;
 	struct page	*page = spt_find_page(spt, va);
 
@@ -281,6 +311,7 @@ vm_claim_page (void *va UNUSED) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
+
 
 	/* 링크 설정 */
 	frame->page = page;
@@ -302,7 +333,6 @@ vm_do_claim_page (struct page *page) {
 
 	}
 
-
 	/*------------- project 3 -------------*/
 
 	return swap_in (page, frame->kva);
@@ -314,9 +344,9 @@ void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	
 	/*------------- project 3 -------------*/
-
+	// printf("TLWKR\n");
 	hash_init(&spt->page_info, page_hash, page_less, NULL);
-
+	// printf("dddd\n");
 	/*------------- project 3 -------------*/
 }
 
