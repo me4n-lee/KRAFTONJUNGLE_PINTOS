@@ -230,8 +230,8 @@ static struct frame * vm_get_frame (void) {
 static void
 vm_stack_growth (void *addr UNUSED) {
 
-	void *va = pg_round_down(addr);
-	vm_alloc_page(VM_ANON | VM_MARKER_0,va,true);
+	void *upage = pg_round_down(addr);
+	vm_alloc_page(VM_ANON | VM_MARKER_0, upage, true);
 
 }
 
@@ -244,6 +244,7 @@ vm_handle_wp (struct page *page UNUSED) {
 bool vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct supplemental_page_table *spt UNUSED = &thread_current()->spt;
 	struct page *page = NULL;
+
 	if (addr == NULL)
 		return false;
 
@@ -259,13 +260,22 @@ bool vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,bool us
 			rsp = thread_current()->rsp;
 
 		// 스택 확장으로 처리할 수 있는 폴트인 경우, vm_stack_growth를 호출
-		if ((USER_STACK - (1 << 20) <= rsp - 8 && rsp - 8 == addr && addr <= USER_STACK) || (USER_STACK - (1 << 20) <= rsp && rsp <= addr && addr <= USER_STACK))
+		if ((USER_STACK - (1 << 20) <= rsp - 8 &&
+				rsp - 8 == addr && 
+				addr <= USER_STACK) || (USER_STACK - (1 << 20) <= rsp && 
+				rsp <= addr && 
+				addr <= USER_STACK)){
+
 			vm_stack_growth(addr);
+			// return true;
+
+		}
+			
 
 		page = spt_find_page(spt, pg_round_down(addr));
 		if (page == NULL)
 			return false;
-		if (write == 1 && page->writable == 0) // write 불가능한 페이지에 write 요청한 경우
+		if (write && !page->writable) // write 불가능한 페이지에 write 요청한 경우
 			return false;
 		return vm_do_claim_page(page);
 	}

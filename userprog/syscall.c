@@ -189,20 +189,19 @@ int filesize (int fd) {
 int read (int fd, void *buffer, unsigned size) {
 	check_address (buffer);
 
-	#ifdef VM
+	// #ifdef VM
 
-	struct page *read_page = spt_find_page(&thread_current()->spt, buffer);
-	if(read_page == NULL && !read_page->writable){
-		exit(-1);
-	}
+	// struct page *read_page = spt_find_page(&thread_current()->spt, buffer);
+	// if(read_page == NULL && !read_page->writable){
+	// 	exit(-1);
+	// }
 
-	// 페이지가 존재하지만 스택영역 + 그중에서도 rsp 보다 더 작다? 그러면 안된다!
-	uintptr_t rsp = thread_current()->rsp;
-	if(read_page->va == pg_round_down(rsp) && buffer < rsp){
-		exit(-1);
-	}
+	// uintptr_t rsp = thread_current()->rsp;
+	// if(read_page->va == pg_round_down(rsp) && buffer < rsp){
+	// 	exit(-1);
+	// }
 
-	#endif
+	// #endif
 
 	if (fd == 1) {
 		
@@ -219,6 +218,12 @@ int read (int fd, void *buffer, unsigned size) {
 		
 	}
 	struct file *file = thread_current ()->fdt[fd];
+	#ifdef VM
+    struct page *read_page = spt_find_page(&thread_current()->spt, buffer);
+      	if(read_page && !read_page->writable){
+        	 exit(-1);
+    }
+    #endif
 
 	if (file) {
 		lock_acquire (&filesys_lock);
