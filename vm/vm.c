@@ -76,7 +76,8 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		bool (*page_initializer)(struct page *, enum vm_type, void *);
 
 		switch (VM_TYPE(type)){
-
+			case VM_UNINIT:
+				break;
 			case VM_ANON:
 				page_initializer = anon_initializer;
 				break;
@@ -87,22 +88,19 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		}
 
 		uninit_new(p, upage, init, type, aux, page_initializer);
-
+		
 		p->writable = writable;
 
-		if (spt_insert_page(spt, p)){
-			// printf("insert success\n");
-  			return true;
-		} 
-		else {
-			// printf("insert fail\n");
-  			goto err;
-		}
-	}
-	else{
+		// if (spt_insert_page(spt, p)){
+		// 	// printf("insert success\n");
+  		// 	return true;
+		// } 
+		// else {
+		// 	// printf("insert c\n");
+  		// 	goto err;
+		// }
 
-		goto err;
-
+		return spt_insert_page(spt, p);
 	}
 	/*------------- project 3 -------------*/
 
@@ -124,7 +122,7 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page p, *found_page;
 	struct hash_elem *e;
 
-	p.va = va;												// 인스턴스인 p 생성, 그 va 필드에서 찾고자 하는 가상 주소를 저장한다.
+	p.va = pg_round_down(va);												// 인스턴스인 p 생성, 그 va 필드에서 찾고자 하는 가상 주소를 저장한다.
 	e = hash_find(&spt->page_info, &p.h_elem);				// 주어진 spt의 해시 테이블에서 해당 가상 주소(va)를 키로 가지는 해시 요소를 찾는다.
 
 	if(!e){													// 해시요소가 없다면, NULL 반환
@@ -351,61 +349,90 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 }
 
 /* 보조 페이지 테이블을 src에서 dst로 복사 */
-bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+bool supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED, struct supplemental_page_table *src UNUSED) {
 		
 	// TODO: 보조 페이지 테이블을 src에서 dst로 복사합니다.
 	// TODO: src의 각 페이지를 순회하고 dst에 해당 entry의 사본을 만듭니다.
 	// TODO: uninit page를 할당하고 그것을 즉시 claim해야 합니다.
 
-	struct hash_iterator i;
+	struct hash_iterator iter;
+    struct page *new_page;
+    struct page *entry;
+    enum vm_type type;
 
-	hash_first(&i, &src->page_info);
-	
-	while(hash_next(&i)){
-		// src_page 정보
-		struct page *src_page = hash_entry(hash_cur(&i), struct page, h_elem);
-		enum vm_type type = src_page->operations->type;
-		void *aux = NULL;
-		
-		switch(VM_TYPE(type)){
-			case VM_UNINIT:
-				aux = src_page->uninit.aux;
-				struct file_page *fp = NULL;
 
-				if(aux != NULL){
-					struct file_page *fd = (struct file_page *)aux;
-					fp = (struct file_page *)malloc(sizeof(struct file_page));
-					fp->file = fd->file;
-					fp->ofs = fd->ofs;
-					fp->read_bytes = fd->read_bytes;
-					fp->zero_bytes = fd->zero_bytes;
-				}
+    hash_first(&iter, &src->page_info);
+    while (hash_next(&iter))
+    {
+        entry = hash_entry(hash_cur(&iter), struct page, h_elem);
+        type = entry->operations->type;
 
-				vm_alloc_page_with_initializer(VM_ANON,
-						src_page->va,src_page->writable,src_page->uninit.init,fp);
-				break;
-			case VM_ANON:
-				// uninit page 생성 & 초기화
-				if(!vm_alloc_page(type,src_page->va,src_page->writable)){
-					return false;
-				}
-				
-				if(!vm_claim_page(src_page->va)){
-					return false;
-				}
+        if (entry->frame == NULL)
+        {
+            // printf("frame is null, so we have to swap in entry << \n");
+        }
 
-				// 매핑된 프레임에 내용 로딩
-				struct page *dst_page = spt_find_page(dst,src_page->va);
-				memcpy(dst_page->frame->kva,src_page->frame->kva,PGSIZE);
-				break;
-			case VM_FILE:
-				break;
-		}
-	}
-	
+        if (type == VM_UNINIT)
+        {
+            void *aux = entry->uninit.aux;
+            enum vm_type real_type = page_get_type(entry);
+            struct file_page *fp = NULL;
+            if (aux != NULL)
+            {
+                fp = (struct file_page *)malloc(sizeof(struct file_page));
+                struct file_page *tp = (struct file_page *)aux;
+                fp->file = real_type == VM_FILE ? file_reopen(tp->file) : tp->file;
+                fp->ofs = tp->ofs;
+                fp->read_bytes = tp->read_bytes;
+                fp->zero_bytes = tp->zero_bytes;
+            }
 
+            vm_alloc_page_with_initializer(real_type, entry->va, entry->writable, entry->uninit.init, fp);
+        }
+        else if (type == VM_ANON)
+        {
+            /*
+                VM_ANON + MARKER_0 까지 포함해야 한다.
+                참고로 offset 은 카피할 필요가 없다. 왜냐하면 offset 이 같으면 같은 스왑공간에 들어간다는 소리기 때문이죠.
+                최초에 vm_claim_page 로 스왑인 된 후, 페이지를 카피하고 나면
+                다시 스왑아웃 할 때. 본인만의 스왑 공간 위치(offset) 을 가지게 됨
+            */
+            if (!vm_alloc_page(type, entry->va, entry->writable))
+            {
+                printf("ANON 페이지 카피 실패\n");
+                return false;
+            }
+            if (!vm_claim_page(entry->va))
+                return false;
+
+            void *dest = spt_find_page(dst, entry->va)->frame->kva;
+            memcpy(dest, entry->frame->kva, PGSIZE);
+        }
+        else if (type == VM_FILE)
+        {
+            // 뭘
+            /*
+                file reopen << 꼭ㄴ
+                file 의 오프셋은 카피를 해야할까? 그래야하지 않을까?
+                원본이 쓰기중인 오프셋을 가지고 있다면, 당연히 거기서부터 시작해야 하는게 맞잖아
+            */
+            if (!vm_alloc_page(type, entry->va, entry->writable))
+            {
+                printf("FILE 페이지 카피 실패\n");
+                return false;
+            }
+            if (!vm_claim_page(entry->va))
+                return false;
+            struct page *page = spt_find_page(dst, entry->va);
+            page->file.file = file_reopen(entry->file.file);
+            page->file.ofs = entry->file.ofs;
+            page->file.read_bytes = entry->file.read_bytes;
+            page->file.zero_bytes = entry->file.zero_bytes;
+            memcpy(page->va, entry->frame->kva, PGSIZE);
+        }
+    }
+
+    // lock_release(&src->page_lock);
     return true;
 	
 }
@@ -415,9 +442,7 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
-
 	hash_clear(&spt->page_info, hash_destructor);
-
 }
 
 /*--------------------------------------------------------------------*/
@@ -441,9 +466,11 @@ bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *au
 
 void hash_destructor(struct hash_elem *e, void *aux){
 
-	struct page *p = hash_entry(e, struct page, h_elem);
-	destroy(p);
-	free(p);
+	// struct page *p = hash_entry(e, struct page, h_elem);
+	// destroy(p);
+	// free(p);
+
+	vm_dealloc_page(hash_entry(e,struct page, h_elem));
 
 }
 

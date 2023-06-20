@@ -263,7 +263,7 @@ __do_fork (void *aux) {
 		do_iret (&if_);
 error:
 	// thread_exit ();
-	sema_up (&parent->sema_fork);
+	// sema_up (&parent->sema_fork);
 	exit (TID_ERROR);
 }
 
@@ -287,7 +287,7 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
-	// printf("cleanup_pass\n");
+	// printf("cleanup_failed\n");
 	/* And then load the binary */
 	// success = load (file_name, &_if);
 
@@ -394,6 +394,7 @@ process_cleanup (void) {
 
 #ifdef VM
 	supplemental_page_table_kill (&curr->spt);
+	// printf("failed\n");
 #endif
 
 	uint64_t *pml4;
