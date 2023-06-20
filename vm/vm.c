@@ -354,6 +354,60 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
+		
+	// TODO: 보조 페이지 테이블을 src에서 dst로 복사합니다.
+	// TODO: src의 각 페이지를 순회하고 dst에 해당 entry의 사본을 만듭니다.
+	// TODO: uninit page를 할당하고 그것을 즉시 claim해야 합니다.
+
+	struct hash_iterator i;
+
+	hash_first(&i, &src->page_info);
+	
+	while(hash_next(&i)){
+		// src_page 정보
+		struct page *src_page = hash_entry(hash_cur(&i), struct page, h_elem);
+		enum vm_type type = src_page->operations->type;
+		void *aux = NULL;
+		
+		switch(VM_TYPE(type)){
+			case VM_UNINIT:
+				aux = src_page->uninit.aux;
+				struct file_page *fp = NULL;
+
+				if(aux != NULL){
+					struct file_page *fd = (struct file_page *)aux;
+					fp = (struct file_page *)malloc(sizeof(struct file_page));
+					fp->file = fd->file;
+					fp->ofs = fd->ofs;
+					fp->read_bytes = fd->read_bytes;
+					fp->zero_bytes = fd->zero_bytes;
+				}
+
+				vm_alloc_page_with_initializer(VM_ANON,
+						src_page->va,src_page->writable,src_page->uninit.init,fp);
+				break;
+			case VM_ANON:
+				// uninit page 생성 & 초기화
+				if(!vm_alloc_page(type,src_page->va,src_page->writable)){
+					return false;
+				}
+				
+				if(!vm_claim_page(src_page->va)){
+					return false;
+				}
+
+				// 매핑된 프레임에 내용 로딩
+				struct page *dst_page = spt_find_page(dst,src_page->va);
+				memcpy(dst_page->frame->kva,src_page->frame->kva,PGSIZE);
+				break;
+			case VM_FILE:
+				break;
+		}
+	}
+	
+
+    return true;
+	
 }
 
 /* 보조 페이지 테이블이 유지하고 있는 리소스를 해제 */
@@ -361,6 +415,9 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+
+	hash_clear(&spt->page_info, hash_destructor);
+
 }
 
 /*--------------------------------------------------------------------*/
@@ -380,6 +437,14 @@ bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *au
   	struct page *b = hash_entry(b_, struct page, h_elem);
 
   	return a->va < b->va;
+}
+
+void hash_destructor(struct hash_elem *e, void *aux){
+
+	struct page *p = hash_entry(e, struct page, h_elem);
+	destroy(p);
+	free(p);
+
 }
 
 /*--------------------------------------------------------------------*/
