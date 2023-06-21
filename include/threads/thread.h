@@ -135,7 +135,7 @@ struct thread {
 	struct intr_frame ptf;
 	unsigned magic;                     /* Detects stack overflow. */
 
-
+	struct list mmap_list;
 	/* tick till wake up */
 };
 

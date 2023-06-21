@@ -24,3 +24,10 @@ void close (int fd);
 void check_address (void *addr);
 
 #endif /* userprog/syscall.h */
+
+#ifdef VM
+
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset);
+void munmap(void *addr);
+
+#endif

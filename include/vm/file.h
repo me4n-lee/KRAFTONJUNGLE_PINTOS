@@ -13,6 +13,14 @@ struct file_page {
 	size_t zero_bytes;
 };
 
+struct mmap_file {
+
+	struct list page_list;
+	struct list_elem m_elem;
+	void *start;
+
+};
+
 void vm_file_init (void);
 bool file_backed_initializer (struct page *page, enum vm_type type, void *kva);
 void *do_mmap(void *addr, size_t length, int writable,

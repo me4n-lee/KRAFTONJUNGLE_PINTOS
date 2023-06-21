@@ -49,7 +49,7 @@ struct page {
 
 	/* Your implementation */
 	struct hash_elem h_elem;
-
+	struct list_elem mp_elem;
 	// 읽기, 쓰기 권한
 	bool writable;
 

@@ -12,6 +12,9 @@
 #include "filesys/filesys.h"
 #include "threads/palloc.h"
 #include "userprog/process.h"
+#include "vm/vm.h"
+
+#include "vm/file.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -102,6 +105,15 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_CLOSE:
 			close (f->R.rdi);
 			break;
+
+		#ifdef VM
+		case SYS_MMAP:
+        	f->R.rax = (uint64_t)mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+        	break;
+    	case SYS_MUNMAP:
+        	munmap(f->R.rdi);
+		#endif
+
 		default:
 			exit (-1);
 			break;
@@ -188,20 +200,6 @@ int filesize (int fd) {
 
 int read (int fd, void *buffer, unsigned size) {
 	check_address (buffer);
-
-	// #ifdef VM
-
-	// struct page *read_page = spt_find_page(&thread_current()->spt, buffer);
-	// if(read_page == NULL && !read_page->writable){
-	// 	exit(-1);
-	// }
-
-	// uintptr_t rsp = thread_current()->rsp;
-	// if(read_page->va == pg_round_down(rsp) && buffer < rsp){
-	// 	exit(-1);
-	// }
-
-	// #endif
 
 	if (fd == 1) {
 		
@@ -292,3 +290,91 @@ void check_address (void *addr) {
         exit(-1);
     }
 }
+
+#ifdef VM
+
+static void fd_validate(int fd)
+{
+    if (fd < 0 || fd >= 128)
+    {
+        exit(-1);
+    }
+}
+
+
+#define FDT_MAX_COUNT 128
+
+static struct file *
+get_file(int fd)
+{
+    if (fd < 2 || fd >= FDT_MAX_COUNT)
+        exit(-1);
+    struct file *file = *(thread_current()->fdt + fd);
+    if (file == NULL)
+        exit(-1);
+    return file;
+}
+
+static bool mmap_validate(void *addr, size_t length, off_t offset)
+{
+    if (addr == NULL || ((uint64_t)addr % PGSIZE))
+        return false;
+
+    if (spt_find_page(&thread_current()->spt, addr))
+    {
+        return false;
+    }
+
+    if (!is_user_vaddr((uint64_t)addr) || !is_user_vaddr(addr + length))
+        return false;
+
+    if ((int)length <= 0)
+        return false;
+
+    if (offset > length)
+        return NULL;
+
+    return true;
+}
+
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset)
+{
+    fd_validate(fd);
+    if (!mmap_validate(addr, length, offset))
+    {
+        return NULL;
+    }
+    // validate_address(addr);
+
+    struct thread *curr = thread_current();
+    struct file *file = get_file(fd);
+
+    if (file == NULL)
+        return NULL;
+
+    off_t filelength = file_length(file);
+
+    if (length > filelength)
+        length = filelength;
+
+    if (offset > length)
+        return NULL;
+
+    return do_mmap(addr, length, writable, file, offset);
+}
+
+void munmap(void *addr)
+{
+    check_address(addr);
+    // addr 가 PGSIZE 배수가 아니면 또 에러
+    if (((uint64_t)addr % PGSIZE) != 0)
+        exit(-1);
+
+    struct mmap_file *mf = find_mmfile(addr);
+    if (mf == NULL)
+        exit(-1);
+
+    do_munmap(addr);
+}
+
+#endif
