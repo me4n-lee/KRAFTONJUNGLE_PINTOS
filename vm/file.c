@@ -2,13 +2,16 @@
 
 #include "vm/vm.h"
 #include "userprog/process.h"
+
 #include "threads/vaddr.h"
+#include "threads/mmu.h"
+#include "threads/malloc.h"
+#include "threads/palloc.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
 static void file_backed_destroy (struct page *page);
 bool load_file(struct page *page, void *aux);
-struct mmap_file *find_mmfile(void *addr);
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations file_ops = {
@@ -30,6 +33,16 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	page->operations = &file_ops;
 
 	struct file_page *file_page = &page->file;
+
+	struct file_page *copy_page = (struct file_page *)page->uninit.aux;
+
+	file_page->file = copy_page->file;
+	file_page->ofs = copy_page->ofs;
+	file_page->read_bytes = copy_page->read_bytes;
+	file_page->zero_bytes = copy_page->zero_bytes;
+
+	return true;
+
 }
 
 /* Swap in the page by read contents from the file. */
@@ -45,147 +58,86 @@ file_backed_swap_out (struct page *page) {
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
-static void
-file_backed_destroy (struct page *page) {
+static void file_backed_destroy (struct page *page) {
+
 	struct file_page *file_page UNUSED = &page->file;
+
+	if (pml4_is_dirty(thread_current()->pml4, page->va))
+	{
+		file_write_at(file_page->file, page->va, file_page->read_bytes, file_page->ofs);
+		pml4_set_dirty(thread_current()->pml4, page->va, 0);
+	}
+	pml4_clear_page(thread_current()->pml4, page->va);
+
 }
 
 /* Do the mmap */
-void *
-do_mmap (void *addr, size_t length, int writable,
-		struct file *file, off_t offset) {
+void *do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offset) {
 
-    struct thread *curr = thread_current();
-    struct file *refile = file_reopen(file);
-    struct file_page *fp;
-    struct page *mpage;
+    struct file *f = file_reopen(file);
+	void *start_addr = addr; // 매핑 성공 시 파일이 매핑된 가상 주소 반환하는 데 사용
+	int total_page_count = length <= PGSIZE ? 1 : length % PGSIZE ? length / PGSIZE + 1
+																  : length / PGSIZE; // 이 매핑을 위해 사용한 총 페이지 수
 
-    struct mmap_file *mmap_file = (struct mmap_file *)malloc(sizeof(struct mmap_file));
-	if (!mmap_file) {
-		// Handle error...
-		return NULL;
-	}
-    if (refile == NULL || mmap_file == NULL)
-    {
-        return NULL;
-    }
+	size_t read_bytes = file_length(f) < length ? file_length(f) : length;
+	size_t zero_bytes = PGSIZE - read_bytes % PGSIZE;
 
-    list_init(&mmap_file->page_list);
-    list_push_back(&curr->mmap_list, &mmap_file->m_elem);
+	ASSERT((read_bytes + zero_bytes) % PGSIZE == 0);
+	ASSERT(pg_ofs(addr) == 0);	  // upage가 페이지 정렬되어 있는지 확인
+	ASSERT(offset % PGSIZE == 0); // ofs가 페이지 정렬되어 있는지 확인
 
-    mmap_file->start = addr;
+	while (read_bytes > 0 || zero_bytes > 0)
+	{
+		/* 이 페이지를 채우는 방법을 계산합니다.
+		파일에서 PAGE_READ_BYTES 바이트를 읽고
+		최종 PAGE_ZERO_BYTES 바이트를 0으로 채웁니다. */
+		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-    while (length > 0)
-    {
-        size_t page_read_bytes = length < PGSIZE ? length : PGSIZE;
-        size_t page_zero_bytes = PGSIZE - page_read_bytes;
+		struct file_page *file_page = (struct file_page *)malloc(sizeof(struct file_page));
+		file_page->file = f;
+		file_page->ofs = offset;
+		file_page->read_bytes = page_read_bytes;
+		file_page->zero_bytes = page_zero_bytes;
 
-        fp = (struct file_page *)malloc(sizeof(struct file_page));
-		if (!fp) {
-			// Handle error...
+		// vm_alloc_page_with_initializer를 호출하여 대기 중인 객체를 생성합니다.
+		if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_segment, file_page))
 			return NULL;
-		}
-        fp->file = refile;
-        fp->ofs = offset;
-        fp->read_bytes = page_read_bytes;
-        fp->zero_bytes = page_zero_bytes;
 
-        if (!vm_alloc_page_with_initializer(VM_FILE, addr,
-                                            writable, load_file, fp))
-        {
-            file_close(refile);
-            return NULL;
-        }
+		struct page *p = spt_find_page(&thread_current()->spt, start_addr);
+		p->mapped_page_count = total_page_count;
 
-        mpage = spt_find_page(&curr->spt, addr);
-        list_push_back(&mmap_file->page_list, &mpage->mp_elem);
+		/* Advance. */
+		// 읽은 바이트와 0으로 채운 바이트를 추적하고 가상 주소를 증가시킵니다.
+		read_bytes -= page_read_bytes;
+		zero_bytes -= page_zero_bytes;
+		addr += PGSIZE;
+		offset += page_read_bytes;
+	}
 
-        length -= page_read_bytes;
-        offset += page_read_bytes;
-        addr += PGSIZE;
-    }
-
-    return mmap_file->start; // 시작 주소 리턴
-
+	return start_addr;
 }
 
 /* Do the munmap */
-void
-do_munmap (void *addr) {
+void do_munmap (void *addr) {
 
 	struct supplemental_page_table *spt = &thread_current()->spt;
-    struct page *page = spt_find_page(spt, addr);
-    if (page->operations->type == VM_UNINIT)
-    {
-        vm_claim_page(addr);
-    }
-    struct file *file = page->file.file;
-    struct mmap_file *mmap_file = find_mmfile(addr);
-    struct list *pagelist = &mmap_file->page_list;
+	struct page *p = spt_find_page(spt, addr);
+	int count = p->mapped_page_count;
 
-    struct list_elem *p;
-    while (!list_empty(pagelist))
-    {
-        page = list_entry(list_pop_front(pagelist), struct page, mp_elem);
-        if (pml4_is_dirty(thread_current()->pml4, page->va))
-        {
-            file_write_at(file, page->frame->kva, page->file.read_bytes, page->file.ofs);
-        }
-        hash_delete(&spt->page_info, &page->h_elem);
-        spt_remove_page(spt, page);
-    }
+	// printf("do_munmap\n");
 
-    // 스레드에 mf 를 위한 락을 하나 설정해주자 나중에
-    file_close(file);
-    list_remove(&mmap_file->m_elem);
-    free(mmap_file);
+	for (int i = 0; i < count; i++){
 
-}
+		if (p){
 
+			destroy(p);
+			// spt_remove_page(spt, p);
 
-bool load_file(struct page *page, void *aux)
-{
-    ASSERT(page->frame != NULL);
-    ASSERT(aux != NULL);
+		}
+		addr += PGSIZE;
+		p = spt_find_page(spt, addr);
 
-    struct file_page *fp = (struct file_page *)aux;
-    struct file *file = fp->file;
-    off_t offset = fp->ofs;
-    size_t page_read_bytes = fp->read_bytes;
-    size_t page_zero_bytes = fp->zero_bytes;
+	}
 
-    free(aux);
-
-    page->file = (struct file_page){
-        .file = file,
-        .ofs = offset,
-        .read_bytes = page_read_bytes,
-        .zero_bytes = page_zero_bytes
-    };
-
-    void *kpage = page->frame->kva;
-
-    if (file_read_at(file, kpage, page_read_bytes, offset) != (int)page_read_bytes)
-    {
-        vm_dealloc_page(page);
-        return false;
-    }
-
-    memset(kpage + page_read_bytes, 0, page_zero_bytes);
-
-    return true;
-}
-
-struct mmap_file *find_mmfile(void *addr)
-{
-    struct thread *curr = thread_current();
-    struct list *mlist = &curr->mmap_list;
-    struct list_elem *p;
-    for (p = list_begin(mlist); p != list_end(mlist); p = list_next(p))
-    {
-        struct mmap_file *mmap_file = list_entry(p, struct mmap_file, m_elem);
-        if (mmap_file->start == addr)
-            return mmap_file;
-    }
-    return NULL;
 }

@@ -108,10 +108,12 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 		#ifdef VM
 		case SYS_MMAP:
-        	f->R.rax = (uint64_t)mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+        	f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
         	break;
     	case SYS_MUNMAP:
         	munmap(f->R.rdi);
+			break;
+
 		#endif
 
 		default:
@@ -293,88 +295,49 @@ void check_address (void *addr) {
 
 #ifdef VM
 
-static void fd_validate(int fd)
+#define FDT_COUNT_LIMIT 128
+
+// 파일 객체를 검색하는 함수
+struct file *process_get_file(int fd)
 {
-    if (fd < 0 || fd >= 128)
-    {
-        exit(-1);
-    }
-}
-
-
-#define FDT_MAX_COUNT 128
-
-static struct file *
-get_file(int fd)
-{
-    if (fd < 2 || fd >= FDT_MAX_COUNT)
-        exit(-1);
-    struct file *file = *(thread_current()->fdt + fd);
-    if (file == NULL)
-        exit(-1);
-    return file;
-}
-
-static bool mmap_validate(void *addr, size_t length, off_t offset)
-{
-    if (addr == NULL || ((uint64_t)addr % PGSIZE))
-        return false;
-
-    if (spt_find_page(&thread_current()->spt, addr))
-    {
-        return false;
-    }
-
-    if (!is_user_vaddr((uint64_t)addr) || !is_user_vaddr(addr + length))
-        return false;
-
-    if ((int)length <= 0)
-        return false;
-
-    if (offset > length)
-        return NULL;
-
-    return true;
+	struct thread *curr = thread_current();
+	struct file **fdt = curr->fdt;
+	/* 파일 디스크립터에 해당하는 파일 객체를 리턴 */
+	/* 없을 시 NULL 리턴 */
+	if (fd < 2 || fd >= FDT_COUNT_LIMIT)
+		return NULL;
+	return fdt[fd];
 }
 
 void *mmap(void *addr, size_t length, int writable, int fd, off_t offset)
 {
-    fd_validate(fd);
-    if (!mmap_validate(addr, length, offset))
-    {
-        return NULL;
-    }
-    // validate_address(addr);
+	if (!addr || addr != pg_round_down(addr))
+		return NULL;
 
-    struct thread *curr = thread_current();
-    struct file *file = get_file(fd);
+	if (offset != pg_round_down(offset))
+		return NULL;
 
-    if (file == NULL)
-        return NULL;
+	if (!is_user_vaddr(addr) || !is_user_vaddr(addr + length))
+		return NULL;
 
-    off_t filelength = file_length(file);
+	if (spt_find_page(&thread_current()->spt, addr))
+		return NULL;
 
-    if (length > filelength)
-        length = filelength;
+	struct file *f = process_get_file(fd);
+	if (f == NULL)
+		return NULL;
 
-    if (offset > length)
-        return NULL;
+	if (file_length(f) == 0 || (int)length <= 0)
+		return NULL;
 
-    return do_mmap(addr, length, writable, file, offset);
+	return do_mmap(addr, length, writable, f, offset); // 파일이 매핑된 가상 주소 반환
 }
 
 void munmap(void *addr)
 {
-    check_address(addr);
-    // addr 가 PGSIZE 배수가 아니면 또 에러
-    if (((uint64_t)addr % PGSIZE) != 0)
-        exit(-1);
-
-    struct mmap_file *mf = find_mmfile(addr);
-    if (mf == NULL)
-        exit(-1);
-
-    do_munmap(addr);
+	// printf("syscall_unmap_start\n");
+	do_munmap(addr);
+	// printf("syscall_unmap_end\n");
 }
 
 #endif

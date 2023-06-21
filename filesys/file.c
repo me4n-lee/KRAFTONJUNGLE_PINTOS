@@ -100,13 +100,10 @@ file_write (struct file *file, const void *buffer, off_t size) {
 	return bytes_written;
 }
 
-/* Writes SIZE bytes from BUFFER into FILE,
- * starting at offset FILE_OFS in the file.
- * Returns the number of bytes actually written,
- * which may be less than SIZE if end of file is reached.
- * (Normally we'd grow the file in that case, but file growth is
- * not yet implemented.)
- * The file's current position is unaffected. */
+/* 파일에 대한 FILE_OFS 위치에서 시작하여, BUFFER에서 SIZE 바이트를 파일에 씁니다.
+실제로 쓰여진 바이트의 수를 반환하며, 파일의 끝에 도달한 경우 SIZE보다 작을 수 있습니다.
+(일반적으로 이 경우에는 파일의 크기를 확장하지만, 아직 파일 크기 확장이 구현되지 않았습니다.)
+파일의 현재 위치는 영향을 받지 않습니다. */
 off_t
 file_write_at (struct file *file, const void *buffer, off_t size,
 		off_t file_ofs) {

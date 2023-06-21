@@ -52,7 +52,7 @@ struct page {
 	struct list_elem mp_elem;
 	// 읽기, 쓰기 권한
 	bool writable;
-
+	int mapped_page_count;
 
 	/* 타입별 데이터는 union으로 묶입니다.
 	각 함수는 자동으로 현재 union을 감지합니다. */
