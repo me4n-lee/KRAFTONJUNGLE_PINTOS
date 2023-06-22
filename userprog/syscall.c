@@ -333,8 +333,8 @@ void *mmap(void *addr, size_t length, int writable, int fd, off_t offset)
 	return do_mmap(addr, length, writable, f, offset); // 파일이 매핑된 가상 주소 반환
 }
 
-void munmap(void *addr)
-{
+void munmap(void *addr){
+
 	// printf("syscall_unmap_start\n");
 	do_munmap(addr);
 	// printf("syscall_unmap_end\n");

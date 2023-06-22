@@ -49,7 +49,6 @@ struct page {
 
 	/* Your implementation */
 	struct hash_elem h_elem;
-	struct list_elem mp_elem;
 	// 읽기, 쓰기 권한
 	bool writable;
 	int mapped_page_count;
@@ -127,7 +126,7 @@ enum vm_type page_get_type (struct page *page);
 unsigned page_hash (const struct hash_elem *p_, void *aux);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux);
 void hash_destructor(struct hash_elem *e, void *aux);
-
+void vm_free_frame(struct frame *frame);
 
 struct lock lru_lock;
 

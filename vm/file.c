@@ -1,12 +1,11 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
 #include "vm/vm.h"
-#include "userprog/process.h"
 
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
-#include "threads/malloc.h"
-#include "threads/palloc.h"
+// #include "threads/malloc.h"
+// #include "threads/palloc.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
@@ -49,12 +48,36 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page UNUSED = &page->file;
+
+	size_t page_read_bytes = file_page->read_bytes;
+    size_t page_zero_bytes = file_page->zero_bytes;
+
+
+	if(file_read_at(file_page->file, kva, page_read_bytes, file_page->ofs) != (int)page_read_bytes){
+		return false;
+	}
+
+	memset(kva + page_read_bytes, 0, page_zero_bytes);
+	return true;
+
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
+	
+	if (pml4_is_dirty(thread_current()->pml4, page->va))
+	{
+		//printf("파일 변경 됐으니까 바꿔줘야지\n");
+		file_write_at(file_page->file, page->va, file_page->read_bytes, file_page->ofs);
+		pml4_set_dirty(thread_current()->pml4, page->va, 0);
+	}
+	page->frame->page = NULL;
+	page->frame = NULL;
+	// pml4_clear_page(thread_current()->pml4, page->va);
+	return true;
+
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
@@ -64,11 +87,47 @@ static void file_backed_destroy (struct page *page) {
 
 	if (pml4_is_dirty(thread_current()->pml4, page->va))
 	{
-		file_write_at(file_page->file, page->va, file_page->read_bytes, file_page->ofs);
+		//printf("파일 변경 됐으니까 바꿔줘야지\n");
+		if(file_write_at(file_page->file, page->va, file_page->read_bytes, file_page->ofs) <= 0){
+				//printf("쓰인게 없다는데 맞아?\n");
+		}
 		pml4_set_dirty(thread_current()->pml4, page->va, 0);
 	}
 	pml4_clear_page(thread_current()->pml4, page->va);
 
+}
+
+bool load_file(struct page *page, void *aux)
+{
+    ASSERT(page->frame != NULL);
+    ASSERT(aux != NULL);
+
+    struct file_page *fp = (struct file_page *)aux;
+    struct file *file = fp->file;
+    off_t offset = fp->ofs;
+    size_t page_read_bytes = fp->read_bytes;
+    size_t page_zero_bytes = fp->zero_bytes;
+
+    free(aux);
+
+    page->file = (struct file_page){
+        .file = file,
+        .ofs = offset,
+        .read_bytes = page_read_bytes,
+        .zero_bytes = page_zero_bytes
+    };
+
+    void *kpage = page->frame->kva;
+
+    if (file_read_at(file, kpage, page_read_bytes, offset) != (int)page_read_bytes)
+    {
+        vm_dealloc_page(page);
+        return false;
+    }
+
+    memset(kpage + page_read_bytes, 0, page_zero_bytes);
+
+    return true;
 }
 
 /* Do the mmap */
@@ -93,7 +152,6 @@ void *do_mmap (void *addr, size_t length, int writable, struct file *file, off_t
 		최종 PAGE_ZERO_BYTES 바이트를 0으로 채웁니다. */
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
-
 		struct file_page *file_page = (struct file_page *)malloc(sizeof(struct file_page));
 		file_page->file = f;
 		file_page->ofs = offset;
@@ -101,12 +159,14 @@ void *do_mmap (void *addr, size_t length, int writable, struct file *file, off_t
 		file_page->zero_bytes = page_zero_bytes;
 
 		// vm_alloc_page_with_initializer를 호출하여 대기 중인 객체를 생성합니다.
-		if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_segment, file_page))
+		if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, load_file, file_page)){
+
 			return NULL;
+
+		}
 
 		struct page *p = spt_find_page(&thread_current()->spt, start_addr);
 		p->mapped_page_count = total_page_count;
-
 		/* Advance. */
 		// 읽은 바이트와 0으로 채운 바이트를 추적하고 가상 주소를 증가시킵니다.
 		read_bytes -= page_read_bytes;

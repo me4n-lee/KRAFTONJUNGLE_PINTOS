@@ -15,10 +15,25 @@ clear
 # make tests/vm/pt-grow-stk-sc.result
 
 
-pintos -v -k -T 60 -m 20   --fs-disk=10 -p tests/vm/mmap-read:mmap-read -p ../../tests/vm/sample.txt:sample.txt --swap-disk=4 -- -q   -f run mmap-read
-make tests/vm/mmap-read.result
+# pintos -v -k -T 60 -m 20   --fs-disk=10 -p tests/vm/mmap-read:mmap-read -p ../../tests/vm/sample.txt:sample.txt --swap-disk=4 -- -q   -f run mmap-read
+# make tests/vm/mmap-read.result
 
-pintos -v -k -T 60 -m 20   --fs-disk=10 -p tests/vm/mmap-close:mmap-close -p ../../tests/vm/sample.txt:sample.txt --swap-disk=4 -- -q   -f run mmap-close
-make tests/vm/mmap-close.result
+# pintos -v -k -T 60 -m 20   --fs-disk=10 -p tests/vm/mmap-close:mmap-close -p ../../tests/vm/sample.txt:sample.txt --swap-disk=4 -- -q   -f run mmap-close
+# make tests/vm/mmap-close.result
+
+# pintos -v -k -T 180 -m 8   --fs-disk=10 -p tests/vm/swap-file:swap-file -p ../../tests/vm/large.txt:large.txt --swap-disk=10 -- -q   -f run swap-file
+
+# make tests/vm/mmap-off.result
+# make tests/vm/mmap-remove.result
+# make tests/vm/mmap-close.result
+# make tests/vm/page-merge-par.result
+
+make tests/vm/swap-file.result
+make tests/vm/swap-anon.result
+make tests/vm/swap-iter.result
+
+# make tests/vm/page-merge-mm.result
+# make tests/vm/mmap-exit.result
+# make tests/vm/mmap-inherit.result
 
 cd ..

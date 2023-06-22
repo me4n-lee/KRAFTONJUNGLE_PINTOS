@@ -7,6 +7,9 @@
 #include "userprog/process.h"
 // #include "lib/kernel/hash.h"
 
+static struct list frame_list;
+static struct lock frame_lock;
+
 #define USER_STACK_LIMIT (1 << 20)
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
@@ -21,6 +24,9 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	list_init(&frame_list);
+	lock_init(&frame_lock);
+
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -67,20 +73,13 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 		p = (struct page*) malloc(sizeof(struct page));
 
-		if (p == NULL){
-			// printf("p is null\n");
-			goto err;
-
-		}
-
 		bool (*page_initializer)(struct page *, enum vm_type, void *);
 
 		switch (VM_TYPE(type)){
-			case VM_UNINIT:
-				break;
 			case VM_ANON:
 				page_initializer = anon_initializer;
 				break;
+			case VM_UNINIT:
 			case VM_FILE:
 				page_initializer = file_backed_initializer;
 				break;
@@ -179,6 +178,26 @@ static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
 	 /* TODO: The policy for eviction is up to you. */
+	struct list_elem *e;
+	lock_acquire(&frame_lock);
+
+	for(e = list_begin(&frame_list); e != list_end(&frame_list); e = list_next(e)){
+
+		victim = list_entry(e,struct frame, f_elem);
+		uint64_t *pml4 = thread_current()->pml4;
+
+		if(victim->page == NULL){
+			break;
+		}
+
+		if(pml4_is_accessed(pml4,victim->page->va)){
+			pml4_set_accessed(pml4,victim->page->va,0);
+		}else{
+			break;
+		}
+	}
+
+	lock_release(&frame_lock);
 
 	return victim;
 }
@@ -189,6 +208,10 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
+	if (victim->page != NULL){
+		// 어디로 가는거냐고
+        swap_out(victim->page);
+	}
 
 	return NULL;
 }
@@ -199,29 +222,56 @@ vm_evict_frame (void) {
 이 함수는 프레임을 추방하여 사용 가능한 메모리 공간을 얻습니다. */
 static struct frame * vm_get_frame (void) {
 	
+	// struct frame *frame = NULL;
+	// /* TODO: Fill this function. */
+
+	// /*------------- project 3 -------------*/
+
+	// /* palloc_get_page를 호출하여 사용자 풀로부터 새로운 물리 페이지를 가져옵니다. */
+	// void *kva = palloc_get_page(PAL_USER);
+
+	// if(!kva){
+
+	// 	PANIC("todo");		
+
+	// }
+
+	// frame = (struct frame *)malloc(sizeof(struct frame));
+
+	// frame->kva = kva;
+	// frame->page = NULL;
+
+	// /*------------- project 3 -------------*/
+
+	// ASSERT (frame != NULL);
+	// ASSERT (frame->page == NULL);
+	// return frame;
+
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
-
-	/*------------- project 3 -------------*/
-
-	/* palloc_get_page를 호출하여 사용자 풀로부터 새로운 물리 페이지를 가져옵니다. */
-	void *kva = palloc_get_page(PAL_USER);
-
-	if(!kva){
-
-		PANIC("todo");		
-
+	void *kva = palloc_get_page(PAL_USER | PAL_ZERO);
+	
+	if(kva == NULL){
+		/* while(frame == NULL){// 항상 유효한 주소를 반환해야함
+			frame = vm_evict_frame();
+		} */
+		frame = vm_evict_frame();
+		memset(frame->kva, 0, PGSIZE);
+		frame->page = NULL;
+		return frame;
 	}
-
 	frame = (struct frame *)malloc(sizeof(struct frame));
-
 	frame->kva = kva;
 	frame->page = NULL;
 
-	/*------------- project 3 -------------*/
+	lock_acquire(&frame_lock);
+	list_push_back(&frame_list,&frame->f_elem);
+	lock_release(&frame_lock);
 
-	ASSERT (frame != NULL);
-	ASSERT (frame->page == NULL);
+	ASSERT(frame != NULL);
+    ASSERT(frame->kva != NULL);
+    ASSERT(frame->page == NULL);
+
 	return frame;
 	 
 }
@@ -376,10 +426,10 @@ bool supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED, s
         entry = hash_entry(hash_cur(&iter), struct page, h_elem);
         type = entry->operations->type;
 
-        if (entry->frame == NULL)
-        {
-            // printf("frame is null, so we have to swap in entry << \n");
-        }
+        // if (entry->frame == NULL)
+        // {
+        //     // printf("frame is null, so we have to swap in entry << \n");
+        // }
 
         if (type == VM_UNINIT)
         {
@@ -417,28 +467,28 @@ bool supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED, s
             void *dest = spt_find_page(dst, entry->va)->frame->kva;
             memcpy(dest, entry->frame->kva, PGSIZE);
         }
-        else if (type == VM_FILE)
-        {
-            // 뭘
-            /*
-                file reopen << 꼭ㄴ
-                file 의 오프셋은 카피를 해야할까? 그래야하지 않을까?
-                원본이 쓰기중인 오프셋을 가지고 있다면, 당연히 거기서부터 시작해야 하는게 맞잖아
-            */
-            if (!vm_alloc_page(type, entry->va, entry->writable))
-            {
-                printf("FILE 페이지 카피 실패\n");
-                return false;
-            }
-            if (!vm_claim_page(entry->va))
-                return false;
-            struct page *page = spt_find_page(dst, entry->va);
-            page->file.file = file_reopen(entry->file.file);
-            page->file.ofs = entry->file.ofs;
-            page->file.read_bytes = entry->file.read_bytes;
-            page->file.zero_bytes = entry->file.zero_bytes;
-            memcpy(page->va, entry->frame->kva, PGSIZE);
-        }
+        // else if (type == VM_FILE)
+        // {
+        //     // 뭘
+        //     /*
+        //         file reopen << 꼭ㄴ
+        //         file 의 오프셋은 카피를 해야할까? 그래야하지 않을까?
+        //         원본이 쓰기중인 오프셋을 가지고 있다면, 당연히 거기서부터 시작해야 하는게 맞잖아
+        //     */
+        //     if (!vm_alloc_page(type, entry->va, entry->writable))
+        //     {
+        //         printf("FILE 페이지 카피 실패\n");
+        //         return false;
+        //     }
+        //     if (!vm_claim_page(entry->va))
+        //         return false;
+        //     struct page *page = spt_find_page(dst, entry->va);
+        //     page->file.file = file_reopen(entry->file.file);
+        //     page->file.ofs = entry->file.ofs;
+        //     page->file.read_bytes = entry->file.read_bytes;
+        //     page->file.zero_bytes = entry->file.zero_bytes;
+        //     memcpy(page->va, entry->frame->kva, PGSIZE);
+        // }
     }
 
     // lock_release(&src->page_lock);
@@ -481,6 +531,14 @@ void hash_destructor(struct hash_elem *e, void *aux){
 
 	vm_dealloc_page(hash_entry(e,struct page, h_elem));
 
+}
+
+void vm_free_frame(struct frame *frame){
+    
+	lock_acquire(&frame_lock);
+    list_remove(&frame->f_elem);
+    lock_release(&frame_lock);
+    free(frame);
 }
 
 /*--------------------------------------------------------------------*/

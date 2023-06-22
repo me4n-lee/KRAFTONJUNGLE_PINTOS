@@ -796,6 +796,7 @@ bool lazy_load_segment (struct page *page, void *aux) {
 	struct file_page *load_info = aux;
 	void *kernel_page = page->frame->kva;
 
+
 	file_seek(load_info->file, load_info->ofs);
 
 	if (file_read(load_info->file, kernel_page, load_info->read_bytes) != (int)(load_info->read_bytes)){
@@ -807,7 +808,7 @@ bool lazy_load_segment (struct page *page, void *aux) {
 	
 	memset(kernel_page + load_info->read_bytes, 0, load_info->zero_bytes);
 
-	// free(load_info);
+	// free(page_info);
 
 	return true;
 
