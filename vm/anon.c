@@ -68,18 +68,18 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool anon_swap_in (struct page *page, void *kva) {
 	
 	struct anon_page *anon_page = &page->anon;
-	size_t ofs = anon_page->offset;
+	size_t offset = anon_page->offset;
 
-    if (bitmap_test(swap_bitmap, ofs) == 0)
+    if (bitmap_test(swap_bitmap, offset) == 0)
     {
         PANIC("스왑디스크에 없음. 따라서 swap in 못함!");
     }
 
     for (int i = 0; i < SLOT; ++i)
     {
-        disk_read(swap_disk, ofs * SLOT + i, kva + (i * DISK_SECTOR_SIZE));
+        disk_read(swap_disk, offset * SLOT + i, kva + (i * DISK_SECTOR_SIZE));
     }
-    bitmap_flip(swap_bitmap, ofs);
+    bitmap_flip(swap_bitmap, offset);
     return true;
 }
 
@@ -92,14 +92,13 @@ static bool anon_swap_in (struct page *page, void *kva) {
 데이터의 위치는 페이지 구조체에 저장되어야 합니다. 
 디스크에 사용 가능한 슬롯이 더 이상 없으면 커널 패닉이 발생할 수 있습니다.
 */
-static bool
-anon_swap_out (struct page *page) {
+static bool anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
     uint64_t *pml4 = thread_current()->pml4;
     void *buff = page->frame->kva;
-    size_t ofs;
+    size_t offset;
 
-    if ((ofs = bitmap_scan_and_flip(swap_bitmap, 0, 1, 0)) == BITMAP_ERROR)
+    if ((offset = bitmap_scan_and_flip(swap_bitmap, 0, 1, 0)) == BITMAP_ERROR)
     {
         PANIC("bitmap error");
     }
@@ -107,10 +106,10 @@ anon_swap_out (struct page *page) {
     // 512 바이트 단위로 끊어서 작성? 8 번
     for (int i = 0; i < SLOT; ++i)
     {
-        disk_write(swap_disk, ofs * SLOT + i, buff + (i * DISK_SECTOR_SIZE));
+        disk_write(swap_disk, offset * SLOT + i, buff + (i * DISK_SECTOR_SIZE));
     } 
 
-    anon_page->offset = ofs;
+    anon_page->offset = offset;
     page->frame = NULL;
     pml4_clear_page(pml4, page->va);
 	return true;
@@ -119,8 +118,7 @@ anon_swap_out (struct page *page) {
 
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
 /* 익명 페이지를 파괴하세요. 페이지는 호출자에 의해 해제될 것입니다. */
-static void
-anon_destroy (struct page *page) {
+static void anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 	struct frame *frame = page->frame;
 	if (frame != NULL){

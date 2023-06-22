@@ -369,8 +369,23 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-	if (curr->running_file)
-		file_close (curr->running_file);
+	// if (curr->running_file)
+	// 	file_close (curr->running_file);
+
+	// int cnt = 2;
+	// while (cnt < 128) {
+	// 	if (table[cnt]) {
+	// 		file_close (table[cnt]);
+	// 		table[cnt] = NULL;
+	// 	}
+	// 	cnt++;
+	// }
+	// sema_up(&curr->sema_wait);
+	// sema_down(&curr->sema_exit);
+	// palloc_free_page(table);
+
+	// process_cleanup ();
+
 
 	int cnt = 2;
 	while (cnt < 128) {
@@ -380,11 +395,17 @@ process_exit (void) {
 		}
 		cnt++;
 	}
-	sema_up(&curr->sema_wait);
-	sema_down(&curr->sema_exit);
 	palloc_free_page(table);
 
+	if (curr->running_file)
+		file_close (curr->running_file);
+
 	process_cleanup ();
+
+	sema_up(&curr->sema_wait);
+
+	sema_down(&curr->sema_exit);
+
 }
 
 /* Free the current process's resources. */

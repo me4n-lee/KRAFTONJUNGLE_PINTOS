@@ -107,6 +107,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 
 		#ifdef VM
+
 		case SYS_MMAP:
         	f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
         	break;
@@ -313,7 +314,7 @@ void *mmap(void *addr, size_t length, int writable, int fd, off_t offset)
 {
 	if (!addr || addr != pg_round_down(addr))
 		return NULL;
-
+	
 	if (offset != pg_round_down(offset))
 		return NULL;
 

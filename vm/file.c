@@ -75,7 +75,7 @@ file_backed_swap_out (struct page *page) {
 	}
 	page->frame->page = NULL;
 	page->frame = NULL;
-	// pml4_clear_page(thread_current()->pml4, page->va);
+	pml4_clear_page(thread_current()->pml4, page->va);
 	return true;
 
 }
@@ -97,37 +97,74 @@ static void file_backed_destroy (struct page *page) {
 
 }
 
-bool load_file(struct page *page, void *aux)
-{
-    ASSERT(page->frame != NULL);
-    ASSERT(aux != NULL);
+// bool load_file(struct page *page, void *aux)
+// {
+//     ASSERT(page->frame != NULL);
+//     ASSERT(aux != NULL);
 
-    struct file_page *fp = (struct file_page *)aux;
-    struct file *file = fp->file;
-    off_t offset = fp->ofs;
+//     struct file_page *fp = (struct file_page *)aux;
+//     struct file *file = fp->file;
+//     off_t offset = fp->ofs;
+//     size_t page_read_bytes = fp->read_bytes;
+//     size_t page_zero_bytes = fp->zero_bytes;
+
+//     free(aux);
+
+//     page->file = (struct file_page){
+//         .file = file,
+//         .ofs = offset,
+//         .read_bytes = page_read_bytes,
+//         .zero_bytes = page_zero_bytes
+//     };
+
+//     void *kpage = page->frame->kva;
+
+//     if (file_read_at(file, kpage, page_read_bytes, offset) != (int)page_read_bytes)
+//     {
+//         palloc_free_page(page);
+//         return false;
+//     }
+
+//     memset(kpage + page_read_bytes, 0, page_zero_bytes);
+
+//     return true;
+// }
+
+bool load_file (struct page *page, void *aux) {
+	ASSERT(page->frame != NULL);
+    ASSERT(aux != NULL);
+	/* TODO: Load the segment from the file */
+	/* TODO: This called when the first page fault occurs on address VA. */
+	/* TODO: VA is available when calling this function. */
+	/* TODO: 파일로부터 세그먼트를 로드합니다. /
+	/ TODO: 이 함수는 주소 VA에 해 첫 번째 페이지 폴트가 발생할 때 호출됩니다. /
+	/ TODO: 이 함수를 호출할 때 VA는 사용 가능합니다. */
+
+	struct file_page *fp = (struct file_page *)aux;
+	struct file *file = fp->file;
+	off_t offset = fp->ofs;
     size_t page_read_bytes = fp->read_bytes;
     size_t page_zero_bytes = fp->zero_bytes;
 
-    free(aux);
+	free(aux);
 
-    page->file = (struct file_page){
+	page->file = (struct file_page){
         .file = file,
         .ofs = offset,
         .read_bytes = page_read_bytes,
         .zero_bytes = page_zero_bytes
     };
 
-    void *kpage = page->frame->kva;
+	void *kpage = page->frame->kva;
 
-    if (file_read_at(file, kpage, page_read_bytes, offset) != (int)page_read_bytes)
-    {
-        vm_dealloc_page(page);
-        return false;
-    }
+	if(file_read_at(file, kpage, page_read_bytes, offset) != (int)page_read_bytes){
+		palloc_free_page(page);
+		return false;
+	}
 
-    memset(kpage + page_read_bytes, 0, page_zero_bytes);
-
-    return true;
+	memset(kpage + page_read_bytes, 0, page_zero_bytes);
+	
+	return true;
 }
 
 /* Do the mmap */
@@ -160,7 +197,6 @@ void *do_mmap (void *addr, size_t length, int writable, struct file *file, off_t
 
 		// vm_alloc_page_with_initializer를 호출하여 대기 중인 객체를 생성합니다.
 		if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, load_file, file_page)){
-
 			return NULL;
 
 		}

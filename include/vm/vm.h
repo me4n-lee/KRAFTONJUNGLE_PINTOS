@@ -128,8 +128,4 @@ bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *au
 void hash_destructor(struct hash_elem *e, void *aux);
 void vm_free_frame(struct frame *frame);
 
-struct lock lru_lock;
-
-struct list frame_table;
-
 #endif  /* VM_VM_H */

@@ -198,6 +198,14 @@ tid_t thread_create (const char *name, int priority, thread_func *function, void
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
 
+	t->fdt = palloc_get_page (PAL_ZERO);
+	if (t->fdt == NULL)
+		return TID_ERROR;
+
+	t->fdt[0] = 1;
+	t->fdt[1] = 2;
+	t->next_fd = 2;
+
 	/* 스케줄링 되면 커널 스레드를 호출
 	 * 참고) rdi는 첫 번째 인수이고, rsi는 두 번째 인수입니다. */
 	t->tf.rip = (uintptr_t) kernel_thread;
@@ -215,14 +223,6 @@ tid_t thread_create (const char *name, int priority, thread_func *function, void
 	sema_init (&t->sema_wait, 0);
 
 	list_push_back (&thread_current ()->children_list, &t->child_elem);
-
-	t->fdt = palloc_get_page (PAL_ZERO);
-	if (t->fdt == NULL)
-		return TID_ERROR;
-
-	t->fdt[0] = 1;
-	t->fdt[1] = 2;
-	t->next_fd = 2;
 
 	/* 실행 큐에 추가 */
 	thread_unblock (t);
