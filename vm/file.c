@@ -4,7 +4,8 @@
 
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
-// #include "threads/malloc.h"
+#include "threads/malloc.h"
+// #include "vm/inspect.h"
 // #include "threads/palloc.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);

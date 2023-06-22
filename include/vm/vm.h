@@ -97,6 +97,7 @@ struct supplemental_page_table {
 
 	// 보조 테이블에 있는 각 페이지 정보를 저장하고 관리하는 포인터
 	struct hash page_info;
+	struct lock page_lock;
 	
 };
 

@@ -169,7 +169,7 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED, struct page *page U
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
-	// hash_delete(&spt->page_info, &page->h_elem);
+	hash_delete(&spt->page_info, &page->h_elem);
 	vm_dealloc_page (page);
 	return true;
 }
@@ -214,7 +214,7 @@ vm_evict_frame (void) {
         swap_out(victim->page);
 	}
 
-	return NULL;
+	return victim;
 }
 
 /* palloc()을 사용하여 프레임을 가져옵니다. 
@@ -420,6 +420,7 @@ bool supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED, s
     struct page *entry;
     enum vm_type type;
 
+	// lock_release(&src->page_lock);
 
     hash_first(&iter, &src->page_info);
     while (hash_next(&iter))
@@ -468,28 +469,6 @@ bool supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED, s
             void *dest = spt_find_page(dst, entry->va)->frame->kva;
             memcpy(dest, entry->frame->kva, PGSIZE);
         }
-        // else if (type == VM_FILE)
-        // {
-        //     // 뭘
-        //     /*
-        //         file reopen << 꼭ㄴ
-        //         file 의 오프셋은 카피를 해야할까? 그래야하지 않을까?
-        //         원본이 쓰기중인 오프셋을 가지고 있다면, 당연히 거기서부터 시작해야 하는게 맞잖아
-        //     */
-        //     if (!vm_alloc_page(type, entry->va, entry->writable))
-        //     {
-        //         printf("FILE 페이지 카피 실패\n");
-        //         return false;
-        //     }
-        //     if (!vm_claim_page(entry->va))
-        //         return false;
-        //     struct page *page = spt_find_page(dst, entry->va);
-        //     page->file.file = file_reopen(entry->file.file);
-        //     page->file.ofs = entry->file.ofs;
-        //     page->file.read_bytes = entry->file.read_bytes;
-        //     page->file.zero_bytes = entry->file.zero_bytes;
-        //     memcpy(page->va, entry->frame->kva, PGSIZE);
-        // }
     }
 
     // lock_release(&src->page_lock);
